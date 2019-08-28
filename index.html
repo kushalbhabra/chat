@@ -73,13 +73,15 @@
   <div class="row">
     
     <div class="chat-popup" id="chat-popup">
+      <button type="button" class="close" aria-label="Close" onclick="closeForm()">
+        <span aria-hidden="true">&times;</span>
+      </button>
     <iframe id="sn_va_web_client"
       title="ServiceNow Virtual Agent Client"
       width="100%"
       height="500px"
       src="https://dev92332.service-now.com/sn_va_web_client_app_embed.do">
     </iframe>
-      <button type="button" class="cancel" onclick="closeForm()">Close</button>
     </div>
     
     <button class="open-button" onclick="openForm()">Chat</button>
