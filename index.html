@@ -60,7 +60,7 @@
   </div>
   <div class="row">
     
-    <div class="chat-popup">
+    <div class="chat-popup" id="chat-popup">
     <iframe id="sn_va_web_client"
       title="ServiceNow Virtual Agent Client"
       width="100%"
@@ -77,11 +77,11 @@
 
   <script>
 function openForm() {
-  document.getElementById("myForm").style.display = "block";
+  document.getElementById("chat-popup").style.display = "block";
 }
 
 function closeForm() {
-  document.getElementById("myForm").style.display = "none";
+  document.getElementById("chat-popup").style.display = "none";
 }
 </script>
   
