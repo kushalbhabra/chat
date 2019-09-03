@@ -33,11 +33,12 @@
     /* The popup chat - hidden by default */
     .chat-popup {
       min-width:300px;
-      display: none;
+      visibility: hidden;
       position: fixed;
       bottom: 0;
       right: 15px;
       z-index: 9;
+      background:white
     }
    
   </style>
@@ -123,10 +124,10 @@
 
   <script>
 function openForm() {
-  document.getElementById("chat-popup").style.display = "block";
+  document.getElementById("chat-popup").style.visibility = "visible";
 }
 function closeForm() {
-  document.getElementById("chat-popup").style.display = "none";
+  document.getElementById("chat-popup").style.visibility = "hidden";
 }
 </script>
   
