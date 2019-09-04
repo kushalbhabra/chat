@@ -29,8 +29,10 @@
         const { token } = await res.json();
         window.WebChat.renderWebChat({
           directLine: window.WebChat.createDirectLine({ token }),
-          userID: 'dl_anish',
-          username: 'Kushal Bhabra',
+          user = {
+                id: 'dl_anish',
+                name: 'anish'
+            }
         }, document.getElementById('webchat'));
         document.querySelector('#webchat > *').focus();
       })().catch(err => console.error(err));
