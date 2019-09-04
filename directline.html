@@ -30,8 +30,8 @@
        
         window.WebChat.renderWebChat({
           directLine: window.WebChat.createDirectLine({ secret:'wvT81oLYBcA.OTFWciUuRGwnTZbbY0_o0nxR6O38Ad14QCh1ja2R734' }),
-          userId: 'dl_anish',
-          userName: 'Anish'
+          user: { id: "dl_Anish", name: "Anish" },
+
         }, document.getElementById('webchat'));
         document.querySelector('#webchat > *').focus();
       })().catch(err => console.error(err));
