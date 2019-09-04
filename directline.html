@@ -28,7 +28,9 @@
         const res = await fetch('https://nowbuddy.azurewebsites.net/config', { method: 'POST' ,mode: 'cors'});
         const { token } = await res.json();
         window.WebChat.renderWebChat({
-          directLine: window.WebChat.createDirectLine({ token })
+          directLine: window.WebChat.createDirectLine({ token }),
+          userID: 'dl_kushal',
+          username: 'Kushal Bhabra',
         }, document.getElementById('webchat'));
         document.querySelector('#webchat > *').focus();
       })().catch(err => console.error(err));
