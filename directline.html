@@ -27,9 +27,9 @@
         // and to understand the risks associated with using secrets, visit https://docs.microsoft.com/en-us/azure/bot-service/rest-api/bot-framework-rest-direct-line-3-0-authentication?view=azure-bot-service-4.0
         //const res = await fetch('https://nowbuddy.azurewebsites.net/config', { method: 'POST' ,mode: 'cors'});
         //const { token } = await res.json();
-        const {token} = "wvT81oLYBcA.OTFWciUuRGwnTZbbY0_o0nxR6O38Ad14QCh1ja2R734";
+       
         window.WebChat.renderWebChat({
-          directLine: window.WebChat.createDirectLine({ token }),
+          directLine: window.WebChat.createDirectLine({ secret:'wvT81oLYBcA.OTFWciUuRGwnTZbbY0_o0nxR6O38Ad14QCh1ja2R734' }),
           user : {
                 id: 'dl_anish',
                 name: 'anish'
