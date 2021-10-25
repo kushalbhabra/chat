@@ -1,57 +1,39 @@
-
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
-  <title>CE - ServiceNow</title>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
-  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js"></script>
-  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js"></script>
-  <style>
-    .open-button {
-      background-color: #555;
-      color: white;
-      padding: 16px 20px;
-      border: none;
-      cursor: pointer;
-      opacity: 0.8;
-      position: fixed;
-      bottom: 23px;
-      right: 28px;
-      width: 280px;
-    }
-    .cancel{
-      background-color: #555;
-      color: white;
-      padding: 16px 20px;
-      border: none;
-      cursor: pointer;
-      opacity: 1;
-      width: 100%;
-    }
-    /* The popup chat - hidden by default */
-    .chat-popup {
-      min-width:300px;
-      display: none;
-      position: fixed;
-      bottom: 0;
-      right: 15px;
-      z-index: 9;
-    }
-   
-
-  </style>
+    <meta name="viewport" content="width=device-width" />
+    <title>YouTube</title>
+    <script src="https://statics.teams.cdn.office.net/sdk/v1.5.2/js/MicrosoftTeams.min.js" asp-append-version="true"></script>
 </head>
 <body>
-  
-<video width="320" height="240" controls>
-  <source src="https://adaptivecardsblob.blob.core.windows.net/assets/AdaptiveCardsOverviewVideo.mp4" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
+    <style>
+        body {
+            margin: 0;
+        }
 
-  
+        #embed-container iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 95%;
+            height: 95%;
+            padding-left: 20px;
+            padding-right: 20px;
+            padding-top: 10px;
+            padding-bottom: 10px;
+            border-style: none;
+        }
+    </style>
+    <script>
+        microsoftTeams.initialize();
+
+        //- Handle the Esc key
+        document.onkeyup = function (event) {
+            if ((event.key === 27) || (event.key === "Escape")) {
+                microsoftTeams.tasks.submitTask(null); //- this will return an err object to the completionHandler()
+            }
+        }</script>
+    <div id="embed-container">
+<iframe width="1000" height="700" src="https://www.youtube.com/embed/r9WQPSaLnaU" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen="allowfullscreen"></iframe></div>
 </body>
 </html>
-
