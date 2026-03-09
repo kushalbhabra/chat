@@ -1,0 +1,41 @@
+{
+  "name": "@chat/adapter-teamssdk",
+  "version": "0.1.0",
+  "description": "Microsoft Teams SDK Adapter for the vercel/chat Adapter interface pattern",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "teams",
+    "microsoft-teams",
+    "bot",
+    "adapter",
+    "chat"
+  ],
+  "license": "MIT"
+}
