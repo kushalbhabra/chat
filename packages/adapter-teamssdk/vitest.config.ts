@@ -1,14 +1,14 @@
-import { defineConfig } from 'vitest/config';
+import { defineProject } from "vitest/config";
 
-export default defineConfig({
+export default defineProject({
   test: {
-    environment: 'node',
     globals: true,
-    include: ['__tests__/**/*.test.ts'],
+    environment: "node",
     coverage: {
-      provider: 'v8',
-      reporter: ['text', 'json', 'html'],
-      include: ['src/**/*.ts'],
+      provider: "v8",
+      reporter: ["text", "json-summary"],
+      include: ["src/**/*.ts"],
+      exclude: ["src/**/*.test.ts"],
     },
   },
 });
