@@ -1,8 +1,24 @@
 # Teams Bot SDK Analysis: `microsoft/teams.ts` vs `vercel/chat` Adapter
 
-> **Date:** 2026-03-31
+> **Date:** 2026-04-06 (revised; original analysis: 2026-03-31)
 > **Context:** Evaluating the best SDK approach for a Teams bot that connects to a remote Vercel AI SDK chatbot.
-> **Key event:** `vercel/chat` [PR #302](https://github.com/vercel/chat/pull/302) merged today (2026-03-31), migrating the Teams adapter from the deprecated `botbuilder` to `@microsoft/teams.apps` — the same core SDK as `microsoft/teams.ts`.
+> **Key event:** `vercel/chat` [PR #302](https://github.com/vercel/chat/pull/302) merged 2026-03-31, migrating the Teams adapter from the deprecated `botbuilder` to `@microsoft/teams.apps` — the same core SDK as `microsoft/teams.ts`.
+
+---
+
+## ⚡ What Changed Since 2026-03-31
+
+Key developments that affect this document's recommendations and code samples:
+
+| Change | Impact |
+|---|---|
+| **`@microsoft/teams.apps` v2.0.6 released** (2026-03-25) | Version row corrected from `0.0.x` → `2.0.x`. Packages are shipping stable 2.x releases; version concern is lower. |
+| **`HttpPlugin` formally deprecated** (PR #433, v2.0.6) | `BridgeHttpAdapter` correctly implements the new `IHttpServerAdapter` interface — it was already using the right pattern. No adapter changes needed. |
+| **`IsTargeted` moved from `Activity` to `Account`** (PR #477, v2.0.6) | `ActivitySender.send()` now calls `createTargeted()`/`updateTargeted()` when `recipient.isTargeted === true`. Feature 6 ephemeral implementation is updated accordingly. |
+| **`app.name` deprecated** (v2.0.6) | Blueprint code correctly uses `this.userName` (not `app.name`). |
+| **`HttpStream` confirmed not exported from `@microsoft/teams.apps`** | `vercel/chat` adapter has a TODO confirming this. Feature 1 blueprint updated to use `activitySender.createStream()` (returns `IStreamer`) instead of importing `HttpStream` directly. |
+| **Invoke route alias map confirmed** (routes/invoke/index.ts) | `task/fetch` → **`dialog.open`**, `task/submit` → **`dialog.submit`**, `composeExtension/query` → **`message.ext.query`**. Features 3 and 4 blueprints corrected. |
+| **Adaptive Cards default version bumped to 1.5** (PR #476) | Impacts `buildSelectCard()` — default version corrected to `"1.5"`. |
 
 ---
 
@@ -39,6 +55,7 @@
 | **Key packages** | `@microsoft/teams.apps`, `.api`, `.ai`, `.cards`, `.graph`, `.openai`, `.dev` | `chat` (core), `@chat-adapter/teams`, `@chat-adapter/slack`, etc. |
 | **Teams adapter dependency** | _is_ the SDK | Depends on `@microsoft/teams.apps` v2 (since PR #302) |
 | **Primary target** | Long-running Express/Node server | Serverless / Next.js / Vercel edge functions |
+| **Package version** | **`2.0.6`** (stable 2.x series; `0.0.0` in source is an nbgv placeholder) | `4.23.0` (`@chat-adapter/teams`) |
 
 ---
 
@@ -47,10 +64,10 @@
 ### `microsoft/teams.ts` — 16-Package Monorepo
 
 ```
-@microsoft/teams.apps       ← Core App class, event routing, middleware, OAuth
+@microsoft/teams.apps       ← Core App class, event routing, HttpServer, middleware, OAuth
 @microsoft/teams.api        ← Activity types, REST API client, Bot Framework types
 @microsoft/teams.ai         ← Memory, prompts, citations, function definitions, models
-@microsoft/teams.cards      ← Type-safe Adaptive Card builder
+@microsoft/teams.cards      ← Type-safe Adaptive Card builder (default version now 1.5)
 @microsoft/teams.graph      ← Graph API typed client
 @microsoft/teams.graph-endpoints ← Graph endpoint definitions (typed)
 @microsoft/teams.openai     ← Azure OpenAI / OpenAI direct integration
@@ -61,6 +78,8 @@
 @microsoft/teams.common     ← Shared utilities (logging, storage, http, events)
 ```
 
+**v2.0.6 HTTP architecture note:** `HttpPlugin` is now **deprecated**. The new pattern is `HttpServer` (always present as `app.server`) + a pluggable `IHttpServerAdapter`. The `ExpressAdapter` is the default; custom adapters implement a single `registerRoute()` method. `app.name` is also deprecated — use your own label instead.
+
 ### `vercel/chat` Teams Adapter — After PR #302
 
 The adapter is now a **thin serverless bridge** over `@microsoft/teams.apps`:
@@ -68,7 +87,7 @@ The adapter is now a **thin serverless bridge** over `@microsoft/teams.apps`:
 ```
 vercel/chat TeamsAdapter
 ├── this.app              ← @microsoft/teams.apps App instance (the real teams.ts core)
-├── this.bridgeAdapter    ← BridgeHttpAdapter (bridges serverless → App.initialize handler)
+├── this.bridgeAdapter    ← BridgeHttpAdapter (implements the official IHttpServerAdapter)
 ├── this.graphReader      ← TeamsGraphReader (Graph API message history)
 └── implements Adapter<TeamsThreadId, unknown>  ← vercel/chat cross-platform interface
 ```
@@ -76,8 +95,9 @@ vercel/chat TeamsAdapter
 **The BridgeHttpAdapter pattern** — how serverless works:
 
 ```typescript
-// BridgeHttpAdapter captures the route handler registered by App.initialize()
-// and exposes dispatch() for Next.js API routes to call
+// BridgeHttpAdapter implements IHttpServerAdapter (the official v2.0.6 interface,
+// replacing the now-deprecated HttpPlugin). It captures the route handler that
+// App.initialize() registers and exposes dispatch() for Next.js API routes.
 class BridgeHttpAdapter implements IHttpServerAdapter {
   registerRoute(_method, _path, handler) {
     this.handler = handler; // captured once during app.initialize()
@@ -98,6 +118,8 @@ Wins listed in the PR:
 - Less setup code
 - Reaction support added
 
+**Note:** `vercel/chat` was already using `IHttpServerAdapter` before v2.0.6 formalized the concept. PR #433 validated their approach by making it the official SDK pattern. The adapter is more architecturally forward-looking than originally expected.
+
 ---
 
 ## 3. Feature Comparison Matrix
@@ -111,20 +133,20 @@ Wins listed in the PR:
 | Delete message | ✅ | ✅ |
 | File uploads | ✅ | ✅ (data URI encoding) |
 | Typing indicator | ✅ | ✅ |
-| Native HTTP streaming | ✅ `HttpStream` class | ❌ post+edit fallback |
+| Native HTTP streaming | ✅ `ctx.stream` / `HttpStream` (internal) | ❌ post+edit fallback (TODO in adapter source) |
 | DMs / openDM | ✅ | ✅ |
 
 ### Rich Content
 
 | Feature | `teams.ts` direct | `vercel/chat` adapter |
 |---|---|---|
-| Adaptive Cards | ✅ (type-safe `@microsoft/teams.cards`) | ✅ (JSON converter) |
+| Adaptive Cards | ✅ (type-safe `@microsoft/teams.cards`, default v1.5) | ✅ (JSON converter) |
 | Buttons (Action.Submit) | ✅ | ✅ |
 | Link buttons (Action.OpenUrl) | ✅ | ✅ |
 | Select menus (Input.ChoiceSet) | ✅ | ❌ not implemented |
 | Tables | ✅ | ✅ GFM |
-| Modals (Task Modules) | ✅ `task/fetch` + `task/submit` | ❌ not implemented |
-| Ephemeral messages | ✅ `isTargeted` recipient | ❌ DM fallback only |
+| Modals (Dialogs: `dialog.open`/`dialog.submit`) | ✅ | ❌ not implemented |
+| Targeted/ephemeral messages | ✅ `recipient.isTargeted` (⚠️ experimental) | ❌ DM fallback only |
 
 ### Conversations & Identity
 
@@ -134,7 +156,7 @@ Wins listed in the PR:
 | Receive reactions | ✅ | ✅ |
 | Add reactions | ❌ (Teams platform limit — needs delegated token) | ❌ NotImplementedError |
 | OAuth / SSO sign-in | ✅ full pipeline | ❌ not implemented |
-| Slash commands (Messaging Extensions) | ✅ | ❌ not implemented |
+| Slash commands (`message.ext.query`) | ✅ | ❌ not implemented |
 | Multi-platform support | ❌ Teams only | ✅ Slack, Teams, Discord, GChat, etc. |
 
 ### AI & Developer Experience
@@ -153,9 +175,10 @@ Wins listed in the PR:
 | | `teams.ts` direct | `vercel/chat` adapter |
 |---|---|---|
 | Maintainer | Microsoft (official) | Vercel |
-| Package version | `0.0.x` (pre-GA, breaking changes possible) | `4.x.x` (stable) |
+| Package version | **`2.0.6`** (stable 2.x; regular monthly releases) | `4.23.0` (stable) |
 | Active development | ✅ daily commits | ✅ daily commits |
 | BotFramework dependency | ❌ none (migrated away) | ❌ none (since PR #302) |
+| HTTP pattern | `HttpServer` + `IHttpServerAdapter` (HttpPlugin deprecated) | `BridgeHttpAdapter` implements `IHttpServerAdapter` ✅ |
 
 ---
 
@@ -166,21 +189,21 @@ Wins listed in the PR:
 **Pros:**
 
 1. **First-party, authoritative** — Microsoft maintainers, official Teams platform SDK
-2. **Full Teams feature depth** — Native `HttpStream` streaming, Adaptive Card type-safe builder, OAuth/SSO, tabs, config tabs, meeting lifecycle, proactive messaging, MCP plugin
+2. **Full Teams feature depth** — Native streaming (`ctx.stream`), Adaptive Card type-safe builder (v1.5), OAuth/SSO, tabs, config tabs, meeting lifecycle, proactive messaging, MCP plugin
 3. **Rich AI tooling** — `@microsoft/teams.ai` with memory, citations, function definitions; `@microsoft/teams.openai` for Azure OpenAI
 4. **No abstraction overhead** — Direct access to `ctx.activity`, full `activity.channelData`, all Teams-specific invoke types
-5. **Vercel AI SDK** — Wire `streamText()` directly into `context.stream.emit()` without normalization layer
-6. **OAuth/SSO built-in** — `app.on('signin.tokenExchange')`, `ctx.signin()`, `ctx.signout()`
+5. **Vercel AI SDK** — Wire `streamText()` directly into `ctx.stream.emit()` without normalization layer
+6. **OAuth/SSO built-in** — `app.event('signin', ...)`, `ctx.signin()`, `ctx.signout()` — fully typed
 7. **Dev tooling** — `@microsoft/teams.dev` tunnel, `@microsoft/teams.devtools` debug panel
-8. **Plugin ecosystem** — HttpPlugin, FeedbackPlugin (WIP), MCP plugin, custom plugin interface
+8. **Plugin ecosystem** — MCP plugin, custom `IPlugin` interface, DI container
+9. **Stable release cadence** — v2.0.x with monthly releases and a clear changelog
 
 **Cons:**
 
 1. **Teams-only** — No future path to Slack/GChat/Discord without full rewrite
-2. **Not serverless-native** — Designed for long-running Express servers; Next.js requires custom `IHttpServerAdapter` implementation
-3. **Pre-GA versions** — Several packages at `0.0.x`; API breaking changes possible
-4. **Self-managed state** — Distributed locks, subscription state, concurrency management are your problem
-5. **Smaller community** — ~81 stars; fewer examples, less community knowledge
+2. **Not serverless-native** — Designed for long-running Express servers; Next.js requires custom `IHttpServerAdapter` (PR #433 made this easier but still requires wiring)
+3. **Self-managed state** — Distributed locks, subscription state, concurrency management are your problem
+4. **Smaller community** — ~81 stars; fewer examples, less community knowledge
 
 ### Option B: `vercel/chat` Teams Adapter
 
@@ -197,8 +220,8 @@ Wins listed in the PR:
 **Cons:**
 
 1. **Abstraction layer costs** — Lose direct access to Teams-specific features; reach-through requires `raw` or subclassing
-2. **Teams features second-class** — Native streaming, Modals, Slash commands, SSO all not yet implemented
-3. **Very new** — Created December 2025; Teams adapter stable only since today (PR #302 merged)
+2. **Teams features second-class** — Native streaming, Modals, Slash commands, SSO all not yet implemented (adapter has an explicit TODO for streaming)
+3. **Very new** — Created December 2025; Teams adapter stable since PR #302 (2026-03-31)
 4. **Thin adapter = thin coverage** — ~1000 lines implementing ~15 Teams things vs 27k+ lines across 16 packages in `teams.ts`
 5. **Streaming is post+edit polling** — Not the real Teams streaming protocol; visible flicker on long AI responses
 
@@ -252,22 +275,26 @@ export class HybridTeamsAdapter extends TeamsAdapter {
 }
 ```
 
-> **Why this works:** `TeamsAdapter` calls `this.app = new App({...})` in its constructor. `App` is an unsealed class and the `IHttpServerAdapter` bridge is already wired in. Subclassing gives clean access without monkeypatching.
+> **Why this works:** `TeamsAdapter` declares `private readonly app: App` in its constructor. The field is `private` (TypeScript-only, not JS-private), so `(this as any).app` accesses it. `App` is an unsealed class and the `IHttpServerAdapter` bridge is already wired in. Subclassing gives clean access without monkeypatching. Pin `@chat-adapter/teams` to an exact version and add a test asserting `(adapter as any).app instanceof App` to catch any field renames.
 
 ---
 
 ### Feature 1: Native Teams HTTP Streaming
 
-**Problem:** The current `TeamsAdapter.stream()` uses post+edit polling (sends a message, then edits it for every chunk). This causes visible flickering and violates the Teams streaming UX contract.
+**Problem:** The current `TeamsAdapter.stream()` uses post+edit polling (sends a message, then edits it for every chunk). This causes visible flickering and violates the Teams streaming UX contract. The adapter source has a TODO comment: `// TODO: Use native HttpStream for DMs once @microsoft/teams.apps exports it.`
 
-**The real protocol** (`teams.ts` `HttpStream` class):
+**The real protocol** (`HttpStream` internal class):
 1. `TypingActivity` with `channelData: { streamType: 'streaming', streamSequence: N }` for each chunk — shows a live "typing bubble" that fills in
 2. Final `MessageActivity` with `.addStreamFinal()` — replaces the typing bubble in-place, atomic delivery
 3. `update("Thinking...")` — informative status messages while AI processes
 
+**Important: `HttpStream` is NOT exported from `@microsoft/teams.apps` public API** (confirmed by reading the `http/index.ts` exports). The `vercel/chat` adapter's TODO comment reflects this. The correct approach uses `ActivitySender.createStream()` which returns the exported `IStreamer` interface:
+
 ```typescript
 // hybrid-teams-adapter.ts
-import { HttpStream } from "@microsoft/teams.apps";
+// IStreamer IS exported from @microsoft/teams.apps (via types/streamer.ts → index.ts)
+import type { IStreamer } from "@microsoft/teams.apps";
+import type { ConversationReference } from "@microsoft/teams.api";
 
 export class HybridTeamsAdapter extends TeamsAdapter {
   get teamsApp(): App { return (this as any).app as App; }
@@ -277,30 +304,30 @@ export class HybridTeamsAdapter extends TeamsAdapter {
     textStream: AsyncIterable<string | StreamChunk>,
     _options?: StreamOptions
   ): Promise<RawMessage<unknown>> {
-    const { conversationId, serviceUrl } = this.decodeThreadId(threadId);
+    const { conversationId, serviceUrl } = decodeThreadId(threadId);
 
-    const ref = {
+    // Build the ConversationReference for this thread
+    const ref: ConversationReference = {
       channelId: "msteams",
       serviceUrl,
-      bot: { id: this.teamsApp.id ?? "", name: this.userName, role: "bot" as const },
-      conversation: { id: conversationId, conversationType: "personal" as const },
+      bot: { id: this.teamsApp.id ?? "", name: this.userName, role: "bot" },
+      conversation: { id: conversationId, conversationType: "personal" },
     };
 
-    const httpStream = new HttpStream(
-      (this.teamsApp as any).client.clone({
-        token: () => (this.teamsApp as any).getBotToken(),
-      }),
-      ref
-    );
+    // activitySender.createStream() creates an HttpStream internally and
+    // returns IStreamer — the exported interface with emit(), update(), close()
+    // This is the safe approach that avoids importing the non-exported HttpStream class.
+    const activitySender = (this.teamsApp as any).activitySender;
+    const httpStream: IStreamer = activitySender.createStream(ref);
 
     for await (const chunk of textStream) {
       const text = typeof chunk === "string" ? chunk
         : chunk.type === "markdown_text" ? chunk.text : "";
-      if (text) httpStream.emit(text); // rate-limited, batched, sent as TypingActivity
+      if (text) httpStream.emit(text); // rate-limited (500ms batching, 10 items/pass)
     }
 
     const result = await httpStream.close(); // sends final MessageActivity with streamFinal
-    return { id: result?.id ?? "", threadId, raw: result };
+    return { id: (result as any)?.id ?? "", threadId, raw: result };
   }
 }
 ```
@@ -326,32 +353,49 @@ export const maxDuration = 60;   // Vercel Pro: up to 300s
 **Problem:** `TeamsAdapter` has no OAuth surface. `teams.ts` has a complete pipeline:
 - `ctx.signin()` — initiates the OAuth card flow
 - `ctx.signout()` — token revocation
-- `app.event('signin')` — fires after successful token exchange
+- `app.event('signin', ...)` — fires after successful token exchange (typed in `IEvents`)
 - `signin/tokenExchange` and `signin/verifyState` invoke handlers (registered automatically in `App` constructor)
 
 **Implementation:**
 
 ```typescript
+// HybridTeamsAdapterConfig extends TeamsAdapterConfig with the OAuth connection name
+// so it can be passed at App construction time (options.oauth is readonly after init).
+export interface HybridTeamsAdapterConfig extends TeamsAdapterConfig {
+  oauthConnectionName?: string;
+}
+
 export class HybridTeamsAdapter extends TeamsAdapter {
   private _tokenStore = new Map<string, string>(); // userId → userToken
+
+  constructor(config: HybridTeamsAdapterConfig = {}) {
+    // Pass oauthConnectionName through to the App constructor.
+    // TeamsAdapter.toAppOptions() does not handle oauth, so we extend the
+    // App options via a protected override approach: create the adapter with
+    // the standard config, then the hookSSO() method registers the event listener.
+    // The App's oauth config is set by patching the readonly options reference
+    // before initialize() is called (TypeScript readonly, not Object.freeze()).
+    super(config);
+    if (config.oauthConnectionName) {
+      // options is readonly in TypeScript but not sealed at runtime.
+      // Patch it before app.initialize() is called by Chat constructor.
+      (this.teamsApp as any).options = {
+        ...(this.teamsApp as any).options,
+        oauth: { defaultConnectionName: config.oauthConnectionName },
+      };
+    }
+  }
 
   hookSSO(
     connectionName: string,
     onSignIn: (userId: string, token: string) => Promise<void>
   ): this {
-    // Set the OAuth connection name before initialize()
-    (this.teamsApp as any).options = {
-      ...(this.teamsApp as any).options,
-      oauth: { defaultConnectionName: connectionName },
-    };
-
-    // teams.ts emits 'signin' after onTokenExchange succeeds
-    this.teamsApp.event("signin" as any, async (ctx: any) => {
-      const token = ctx.token?.token ?? "";
-      this._tokenStore.set(ctx.activity.from.id, token);
-      await onSignIn(ctx.activity.from.id, token);
+    // app.event('signin') is fully typed via IEvents in @microsoft/teams.apps
+    this.teamsApp.event("signin", async (ctx) => {
+      const token = (ctx as any).token?.token ?? "";
+      this._tokenStore.set((ctx as any).activity.from.id, token);
+      await onSignIn((ctx as any).activity.from.id, token);
     });
-
     return this;
   }
 
@@ -360,8 +404,8 @@ export class HybridTeamsAdapter extends TeamsAdapter {
   }
 
   async sendSignInCard(threadId: string, opts?: { text?: string }): Promise<void> {
-    const { conversationId } = this.decodeThreadId(threadId);
-    const connectionName = (this.teamsApp as any).oauth?.defaultConnectionName ?? "graph";
+    const { conversationId } = decodeThreadId(threadId);
+    const connectionName = this.teamsApp.oauth?.defaultConnectionName ?? "graph";
 
     await this.teamsApp.send(conversationId, {
       type: "message",
@@ -397,9 +441,15 @@ bot.onNewMention(async (thread, message) => {
 
 ---
 
-### Feature 3: Task Modules (Modals)
+### Feature 3: Task Modules (Dialogs/Modals)
 
 **Problem:** Teams modals use `task/fetch` (open modal) and `task/submit` (submit modal) invokes. `TeamsAdapter` has no handlers for these.
+
+**Critical: Invoke name aliases.** `teams.ts` maps Teams invoke names to dot-notation aliases via `InvokeAliases` in `routes/invoke/index.ts`. You **must** use the alias, not the raw Teams name:
+- `task/fetch` → **`dialog.open`**
+- `task/submit` → **`dialog.submit`**
+
+Using the wrong event name (e.g. `"task.fetch"`) will silently never fire.
 
 **Implementation:**
 
@@ -407,13 +457,14 @@ bot.onNewMention(async (thread, message) => {
 export class HybridTeamsAdapter extends TeamsAdapter {
   private _modalHandlers = new Map<string, ModalHandler>();
 
-  // Call BEFORE new Chat({...}) — registers task/fetch + task/submit handlers
+  // Call BEFORE new Chat({...}) — registers dialog.open + dialog.submit handlers
   hookModals(): this {
     const app = this.teamsApp;
 
     // Teams sends task/fetch when a button with { msteams: { type: "task/fetch" } } is clicked
-    app.on("task.fetch" as any, async (ctx: any) => {
-      const data = ctx.activity.value?.data ?? {};
+    // teams.ts alias: "dialog.open" (not "task.fetch"!)
+    app.on("dialog.open", async (ctx) => {
+      const data = (ctx.activity.value as any)?.data ?? {};
       const handler = this._modalHandlers.get(data.modalId);
       if (!handler) return { status: 404 };
 
@@ -445,8 +496,9 @@ export class HybridTeamsAdapter extends TeamsAdapter {
     });
 
     // Teams sends task/submit when the modal's Action.Submit is clicked
-    app.on("task.submit" as any, async (ctx: any) => {
-      const data = ctx.activity.value?.data ?? {};
+    // teams.ts alias: "dialog.submit" (not "task.submit"!)
+    app.on("dialog.submit", async (ctx) => {
+      const data = (ctx.activity.value as any)?.data ?? {};
       const handler = this._modalHandlers.get(data.modalId);
       if (!handler) return { status: 200, body: { task: null } }; // null closes the modal
 
@@ -499,6 +551,8 @@ bot.onAction("select_submit", async (action) => {
 
 **Problem:** Slash commands in Teams are Messaging Extensions — `composeExtension/query` invokes. Not handled in `TeamsAdapter`.
 
+**Critical: Invoke name alias.** `composeExtension/query` maps to **`message.ext.query`** in `teams.ts` (not `"composeExtension/query"`). Using the raw Teams name will silently never fire.
+
 **Implementation:**
 
 ```typescript
@@ -506,10 +560,11 @@ export class HybridTeamsAdapter extends TeamsAdapter {
   private _slashCommandHandlers = new Map<string, SlashCommandHandler>();
 
   hookSlashCommands(): this {
-    this.teamsApp.on("composeExtension/query" as any, async (ctx: any) => {
-      const commandId = ctx.activity.value?.commandId as string;
+    // teams.ts alias: "message.ext.query" (not "composeExtension/query"!)
+    this.teamsApp.on("message.ext.query", async (ctx) => {
+      const commandId = (ctx.activity.value as any)?.commandId as string;
       const params: Record<string, string> = {};
-      for (const p of (ctx.activity.value?.parameters ?? [])) params[p.name] = p.value;
+      for (const p of ((ctx.activity.value as any)?.parameters ?? [])) params[p.name] = p.value;
 
       const handler = this._slashCommandHandlers.get(commandId);
       if (!handler) {
@@ -575,7 +630,7 @@ export class HybridTeamsAdapter extends TeamsAdapter {
   ): Promise<void> {
     const emojiName = typeof emoji === "string" ? emoji : emoji.name;
     const teamsEmoji = TEAMS_EMOJI_MAP[emojiName] ?? emojiName;
-    const { conversationId } = this.decodeThreadId(threadId);
+    const { conversationId } = decodeThreadId(threadId);
 
     const userToken = [...this._tokenStore.values()][0];
     if (!userToken) {
@@ -600,7 +655,7 @@ export class HybridTeamsAdapter extends TeamsAdapter {
   ): Promise<void> {
     const emojiName = typeof emoji === "string" ? emoji : emoji.name;
     const teamsEmoji = TEAMS_EMOJI_MAP[emojiName] ?? emojiName;
-    const { conversationId } = this.decodeThreadId(threadId);
+    const { conversationId } = decodeThreadId(threadId);
 
     const userToken = [...this._tokenStore.values()][0];
     if (!userToken) throw new Error("removeReaction requires a delegated user token.");
@@ -619,17 +674,13 @@ export class HybridTeamsAdapter extends TeamsAdapter {
 
 ---
 
-### Feature 6: Ephemeral Messages
+### Feature 6: Ephemeral / Targeted Messages
 
-**Problem:** Teams supports ephemeral messages (visible only to one user) via the `isTargeted: true` recipient flag on activities. The adapter currently falls back to DMs.
+**Problem:** Teams supports messages visible only to specific users in a group chat via the `isTargeted: true` recipient flag (`Account.isTargeted`). The adapter currently falls back to DMs.
 
-**This is already implemented in `teams.ts` `ActivityContext.send()`** — the `isTargeted` flag on the recipient is the mechanism:
+**What changed in v2.0.6 (PR #477 + ActivitySender):** `isTargeted` moved from Activity to Account (the `recipient` object). `ActivitySender.send()` now checks `activity.recipient?.isTargeted === true` and automatically calls the targeted API endpoint (`createTargeted()`/`updateTargeted()`). This means `App.send()` also handles it correctly.
 
-```typescript
-// From teams.ts contexts/activity.ts:
-// "For targeted send, set the recipient if not already set."
-if (params.type === 'message' && params.recipient?.isTargeted && !params.id) { ... }
-```
+**Note:** Targeted messaging is marked as ⚠️ **experimental/preview** in v2.0.6. The Teams platform requires the Adaptive Cards version 1.5+ and the `supportsChannelFeatures` manifest field.
 
 **Implementation:**
 
@@ -640,12 +691,13 @@ export class HybridTeamsAdapter extends TeamsAdapter {
     text: string,
     recipientUserId: string
   ): Promise<void> {
-    const { conversationId } = this.decodeThreadId(threadId);
+    const { conversationId } = decodeThreadId(threadId);
     const { MessageActivity } = await import("@microsoft/teams.api");
 
     const activity = new MessageActivity(text);
     activity.textFormat = "markdown";
-    // isTargeted: true is the Teams ephemeral message flag
+    // recipient.isTargeted is the Teams targeted message flag (Account property, v2.0.6+)
+    // ActivitySender.send() will route to createTargeted() automatically.
     (activity as any).recipient = { id: recipientUserId, isTargeted: true };
 
     await this.teamsApp.send(conversationId, activity);
@@ -653,7 +705,7 @@ export class HybridTeamsAdapter extends TeamsAdapter {
 }
 ```
 
-**Note:** Ephemeral messages only work in group chats and channels, not 1:1 DMs (there's no one to hide them from in a DM).
+**Note:** Targeted messages only work in group chats and channels, not 1:1 DMs. The feature is still marked as preview — watch for changes in upcoming `@microsoft/teams.apps` releases.
 
 ---
 
@@ -672,7 +724,7 @@ export function buildSelectCard(
 ): object {
   return {
     type: "AdaptiveCard",
-    version: "1.4",
+    version: "1.5", // updated: @microsoft/teams.cards now defaults to 1.5 (PR #476)
     body: [
       { type: "TextBlock", text: title, weight: "bolder", wrap: true },
       ...selects.map((select) => ({
@@ -715,13 +767,31 @@ bot.onAction("select_submit", async (action) => {
 ```typescript
 // hybrid-teams-adapter.ts
 import { TeamsAdapter, type TeamsAdapterConfig, decodeThreadId, encodeThreadId } from "@chat-adapter/teams";
-import { App, HttpStream } from "@microsoft/teams.apps";
+import { App } from "@microsoft/teams.apps";
+import type { IStreamer } from "@microsoft/teams.apps";  // IStreamer IS exported (types/streamer.ts)
+import type { ConversationReference } from "@microsoft/teams.api";
 import type { EmojiValue, RawMessage, StreamChunk, StreamOptions } from "chat";
+
+export interface HybridTeamsAdapterConfig extends TeamsAdapterConfig {
+  oauthConnectionName?: string;
+}
 
 export class HybridTeamsAdapter extends TeamsAdapter {
   private _tokenStore = new Map<string, string>();
   private _modalHandlers = new Map<string, Function>();
   private _slashCommandHandlers = new Map<string, Function>();
+
+  constructor(config: HybridTeamsAdapterConfig = {}) {
+    super(config);
+    // Patch oauth config before app.initialize() (called by Chat constructor).
+    // options is TypeScript readonly but not Object.freeze()'d, so runtime mutation works.
+    if (config.oauthConnectionName) {
+      (this.teamsApp as any).options = {
+        ...(this.teamsApp as any).options,
+        oauth: { defaultConnectionName: config.oauthConnectionName },
+      };
+    }
+  }
 
   // ── Core escape hatch ────────────────────────────────────────────
   get teamsApp(): App {
@@ -729,25 +799,25 @@ export class HybridTeamsAdapter extends TeamsAdapter {
   }
 
   // ── Feature 1: Native Streaming ──────────────────────────────────
+  // Note: HttpStream is NOT exported from @microsoft/teams.apps public API.
+  // We use activitySender.createStream(ref) which returns IStreamer (IS exported).
+  // This avoids importing from an internal path.
   override async stream(
     threadId: string,
     textStream: AsyncIterable<string | StreamChunk>,
     _options?: StreamOptions
   ): Promise<RawMessage<unknown>> {
-    const { conversationId, serviceUrl } = this.decodeThreadId(threadId);
-    const ref = {
+    const { conversationId, serviceUrl } = decodeThreadId(threadId);
+    const ref: ConversationReference = {
       channelId: "msteams",
       serviceUrl,
-      bot: { id: this.teamsApp.id ?? "", name: this.userName, role: "bot" as const },
-      conversation: { id: conversationId, conversationType: "personal" as const },
+      bot: { id: this.teamsApp.id ?? "", name: this.userName, role: "bot" },
+      conversation: { id: conversationId, conversationType: "personal" },
     };
 
-    const httpStream = new HttpStream(
-      (this.teamsApp as any).client.clone({
-        token: () => (this.teamsApp as any).getBotToken(),
-      }),
-      ref
-    );
+    // activitySender.createStream() creates HttpStream internally and returns IStreamer
+    const activitySender = (this.teamsApp as any).activitySender;
+    const httpStream: IStreamer = activitySender.createStream(ref);
 
     for await (const chunk of textStream) {
       const text = typeof chunk === "string" ? chunk
@@ -756,19 +826,16 @@ export class HybridTeamsAdapter extends TeamsAdapter {
     }
 
     const result = await httpStream.close();
-    return { id: result?.id ?? "", threadId, raw: result };
+    return { id: (result as any)?.id ?? "", threadId, raw: result };
   }
 
   // ── Feature 2: SSO / OAuth ───────────────────────────────────────
   hookSSO(connectionName: string, onSignIn: (userId: string, token: string) => Promise<void>): this {
-    (this.teamsApp as any).options = {
-      ...(this.teamsApp as any).options,
-      oauth: { defaultConnectionName: connectionName },
-    };
-    this.teamsApp.event("signin" as any, async (ctx: any) => {
-      const token = ctx.token?.token ?? "";
-      this._tokenStore.set(ctx.activity.from.id, token);
-      await onSignIn(ctx.activity.from.id, token);
+    // app.event('signin') is fully typed via IEvents in @microsoft/teams.apps (no 'as any' needed)
+    this.teamsApp.event("signin", async (ctx) => {
+      const token = (ctx as any).token?.token ?? "";
+      this._tokenStore.set((ctx as any).activity.from.id, token);
+      await onSignIn((ctx as any).activity.from.id, token);
     });
     return this;
   }
@@ -776,25 +843,29 @@ export class HybridTeamsAdapter extends TeamsAdapter {
   getUserToken(userId: string): string | undefined { return this._tokenStore.get(userId); }
 
   async sendSignInCard(threadId: string, opts?: { text?: string }): Promise<void> {
-    const { conversationId } = this.decodeThreadId(threadId);
+    const { conversationId } = decodeThreadId(threadId);
     await this.teamsApp.send(conversationId, {
       type: "message",
       attachments: [{
         contentType: "application/vnd.microsoft.card.oauth",
         content: {
           text: opts?.text ?? "Please sign in",
-          connectionName: (this.teamsApp as any).oauth?.defaultConnectionName ?? "graph",
+          connectionName: this.teamsApp.oauth?.defaultConnectionName ?? "graph",
           buttons: [{ type: "signin", title: "Sign In" }],
         },
       }],
     });
   }
 
-  // ── Feature 3: Modals ────────────────────────────────────────────
+  // ── Feature 3: Modals (task/fetch → dialog.open, task/submit → dialog.submit) ─
+  // IMPORTANT: teams.ts maps Teams invoke names to dot-notation aliases.
+  // Wrong event name = handler silently never fires.
   hookModals(): this {
     const app = this.teamsApp;
-    app.on("task.fetch" as any, async (ctx: any) => {
-      const data = ctx.activity.value?.data ?? {};
+
+    // "task/fetch" maps to the alias "dialog.open" in teams.ts InvokeAliases
+    app.on("dialog.open", async (ctx) => {
+      const data = (ctx.activity.value as any)?.data ?? {};
       const handler = this._modalHandlers.get(data.modalId);
       if (!handler) return { status: 404 };
       const threadId = encodeThreadId({
@@ -804,10 +875,12 @@ export class HybridTeamsAdapter extends TeamsAdapter {
       const result = await handler(data, ctx.activity.from.id, threadId);
       return { status: 200, body: { task: { type: "continue", value: result } } };
     });
-    app.on("task.submit" as any, async (ctx: any) => {
-      const data = ctx.activity.value?.data ?? {};
+
+    // "task/submit" maps to the alias "dialog.submit" in teams.ts InvokeAliases
+    app.on("dialog.submit", async (ctx) => {
+      const data = (ctx.activity.value as any)?.data ?? {};
       const handler = this._modalHandlers.get(data.modalId);
-      if (!handler) return { status: 200, body: { task: null } }; 
+      if (!handler) return { status: 200, body: { task: null } };
       const threadId = encodeThreadId({
         conversationId: ctx.activity.conversation.id,
         serviceUrl: ctx.activity.serviceUrl,
@@ -823,12 +896,13 @@ export class HybridTeamsAdapter extends TeamsAdapter {
     return this;
   }
 
-  // ── Feature 4: Slash Commands ────────────────────────────────────
+  // ── Feature 4: Slash Commands (composeExtension/query → message.ext.query) ─
+  // IMPORTANT: "composeExtension/query" maps to "message.ext.query" in teams.ts InvokeAliases.
   hookSlashCommands(): this {
-    this.teamsApp.on("composeExtension/query" as any, async (ctx: any) => {
-      const commandId = ctx.activity.value?.commandId as string;
+    this.teamsApp.on("message.ext.query", async (ctx) => {
+      const commandId = (ctx.activity.value as any)?.commandId as string;
       const params: Record<string, string> = {};
-      for (const p of (ctx.activity.value?.parameters ?? [])) params[p.name] = p.value;
+      for (const p of ((ctx.activity.value as any)?.parameters ?? [])) params[p.name] = p.value;
       const handler = this._slashCommandHandlers.get(commandId);
       if (!handler) {
         return { status: 200, body: { composeExtension: { type: "message", text: "Unknown command" } } };
@@ -847,10 +921,10 @@ export class HybridTeamsAdapter extends TeamsAdapter {
   // ── Feature 5: Reactions (requires delegated token via SSO) ─────
   override async addReaction(threadId: string, messageId: string, emoji: EmojiValue | string): Promise<void> {
     const teamsEmoji = this._toTeamsEmoji(typeof emoji === "string" ? emoji : emoji.name);
-    const { conversationId } = this.decodeThreadId(threadId);
+    const { conversationId } = decodeThreadId(threadId);
     const userToken = [...this._tokenStore.values()][0];
     if (!userToken) throw new Error("addReaction requires a delegated user token. Call hookSSO() and ensure a user has signed in.");
-    await fetch(`https://graph.microsoft.com/v1.0/chats/${conversationId}/messages/${messageId}/setReaction`, { 
+    await fetch(`https://graph.microsoft.com/v1.0/chats/${conversationId}/messages/${messageId}/setReaction`, {
       method: "POST",
       headers: { Authorization: `Bearer ${userToken}`, "Content-Type": "application/json" },
       body: JSON.stringify({ reactionType: teamsEmoji }),
@@ -859,7 +933,7 @@ export class HybridTeamsAdapter extends TeamsAdapter {
 
   override async removeReaction(threadId: string, messageId: string, emoji: EmojiValue | string): Promise<void> {
     const teamsEmoji = this._toTeamsEmoji(typeof emoji === "string" ? emoji : emoji.name);
-    const { conversationId } = this.decodeThreadId(threadId);
+    const { conversationId } = decodeThreadId(threadId);
     const userToken = [...this._tokenStore.values()][0];
     if (!userToken) throw new Error("removeReaction requires a delegated user token.");
     await fetch(`https://graph.microsoft.com/v1.0/chats/${conversationId}/messages/${messageId}/unsetReaction`, {
@@ -886,13 +960,13 @@ export class HybridTeamsAdapter extends TeamsAdapter {
 Required construction order:
 1. new HybridTeamsAdapter(config)    ← App created, router empty
 2.   .hookSSO(...)                   ← registers app.event('signin')
-3.   .hookModals()                   ← registers app.on('task.fetch') + app.on('task.submit')
-4.   .hookSlashCommands()            ← registers app.on('composeExtension/query')
+3.   .hookModals()                   ← registers app.on('dialog.open') + app.on('dialog.submit')
+4.   .hookSlashCommands()            ← registers app.on('message.ext.query')
 5.   .registerModal(...)             ← populates modal handler map
 6.   .registerSlashCommand(...)      ← populates slash command handler map
 7. new Chat({ adapters: { teams: adapter } })  ← triggers adapter.initialize()
-                                                   → app.initialize() called
-                                                   → router is now locked
+                                               → app.initialize() called
+                                               → router is now locked
 ```
 
 If you register hooks after step 7, they silently never fire.
@@ -903,14 +977,16 @@ If you register hooks after step 7, they silently never fire.
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| `(this as any).app` breaks if `TeamsAdapter` renames the field | Medium | Pin `@chat-adapter/teams` to a specific version; add a unit test asserting `(adapter as any).app instanceof App` |
-| `HttpStream` not in `@microsoft/teams.apps` public exports | Medium | Import from internal path `@microsoft/teams.apps/dist/http/http-stream` as fallback; watch PR #497 |
-| `app.event('signin')` type changes after `teams.ts` updates | Low | Uses `as any` cast; add integration test with mocked token exchange invoke |
+| `(this as any).app` breaks if `TeamsAdapter` renames the private field | Medium | Pin `@chat-adapter/teams` to exact version; add unit test `assert((adapter as any).app instanceof App)` |
+| `HttpStream` not in `@microsoft/teams.apps` public exports | Medium | Use `activitySender.createStream(ref)` (returns `IStreamer` which IS exported). Fall back to deep import `@microsoft/teams.apps/dist/http/http-stream.js` if needed. Monitor upstream for official export. |
+| `activitySender` field rename on `App` | Low | Field is `protected activitySender: ActivitySender` — stable, but add assertion test |
 | Streaming requires Edge Runtime; Vercel function timeout | High | Set `export const runtime = 'edge'` and `export const maxDuration = 60` (Pro) / `300` (Enterprise) |
-| `task.fetch` / `task.submit` event names may not match `teams.ts` router | Medium | Verify against `teams.ts` `app.process.ts` — check exact invoke name routing before shipping |
+| **Invoke event name aliases** — using raw Teams names silently never fires | **Critical** | Use `teams.ts` aliases: `dialog.open` (not `task.fetch`), `dialog.submit` (not `task.submit`), `message.ext.query` (not `composeExtension/query`). Verify against `routes/invoke/index.ts` `InvokeAliases` map. |
 | Graph API reactions need delegated token, not app token | High | Only expose `addReaction` behind an SSO gate; throw with a clear error if no user token |
 | `hookX()` ordering must precede `Chat` construction | High | Enforce with the factory function pattern (see Section 10) |
+| `options.oauth` mutation via `as any` | Low | Works at runtime (TypeScript `readonly` doesn't prevent mutation). If this breaks, extend `TeamsAdapterConfig` and modify the adapter's `toAppOptions()` instead. |
 | `@microsoft/teams.apps` version drift between adapter's dep and direct dep | Medium | Use `peerDependencies` in your app; ensure both resolve to the same version |
+| Targeted messages (Feature 6) are ⚠️ experimental in v2.0.6 | Medium | Test in a staging Teams tenant; feature requires Adaptive Cards v1.5+ and manifest changes |
 
 ---
 
@@ -920,12 +996,10 @@ Wrap the entire setup in a factory function to enforce hook ordering, prevent mi
 
 ```typescript
 // create-teams-adapter.ts
-import { HybridTeamsAdapter } from "./hybrid-teams-adapter";
-import type { TeamsAdapterConfig } from "@chat-adapter/teams";
+import { HybridTeamsAdapter, type HybridTeamsAdapterConfig } from "./hybrid-teams-adapter";
 
-interface HybridAdapterOptions extends TeamsAdapterConfig {
-  // SSO
-  oauthConnectionName?: string;
+interface HybridAdapterOptions extends HybridTeamsAdapterConfig {
+  // SSO — oauthConnectionName now in HybridTeamsAdapterConfig
   onSignIn?: (userId: string, token: string) => Promise<void>;
   // Feature flags
   enableModals?: boolean;
@@ -934,6 +1008,7 @@ interface HybridAdapterOptions extends TeamsAdapterConfig {
 
 // Factory enforces correct hook registration order before Chat() is constructed
 export function createHybridTeamsAdapter(opts: HybridAdapterOptions): HybridTeamsAdapter {
+  // Constructor patches oauth if oauthConnectionName provided
   const adapter = new HybridTeamsAdapter(opts);
 
   // SSO always first (other features may depend on user tokens)
@@ -993,13 +1068,13 @@ bot.onNewMention(async (thread, message) => {
     return;
   }
 
-  // Native streaming via teams.ts HttpStream (Feature 1)
+  // Native streaming via activitySender.createStream() (Feature 1)
   const result = streamText({
     model: openai("gpt-4o"),
     messages: [{ role: "user", content: message.text }],
   });
 
-  await thread.stream(result.textStream); // Uses overridden stream() → HttpStream
+  await thread.stream(result.textStream); // Uses overridden stream() → IStreamer/HttpStream
 });
 
 // app/api/webhooks/teams/route.ts
@@ -1017,9 +1092,17 @@ export async function POST(request: Request) {
 - [vercel/chat repository](https://github.com/vercel/chat)
 - [microsoft/teams.ts repository](https://github.com/microsoft/teams.ts)
 - [PR #302: Migrate from BotFramework to TeamsSDK](https://github.com/vercel/chat/pull/302) — merged 2026-03-31
-- [teams.ts HttpStream source](https://github.com/microsoft/teams.ts/blob/main/packages/apps/src/http/http-stream.ts)
+- [teams.ts v2.0.6 release notes](https://github.com/microsoft/teams.ts/releases/tag/v2.0.6) — includes HttpServer, targeted messaging, reactions, configurable endpoint
+- [PR #433: Introduce HttpServer + IHttpServerAdapter (deprecates HttpPlugin)](https://github.com/microsoft/teams.ts/pull/433)
+- [PR #477: Move IsTargeted from Activity to Account](https://github.com/microsoft/teams.ts/pull/477)
+- [PR #483: Make messaging endpoint path configurable](https://github.com/microsoft/teams.ts/pull/483)
+- [PR #476: Update Adaptive Cards package (default version 1.5)](https://github.com/microsoft/teams.ts/pull/476)
+- [teams.ts HttpStream source (internal, not exported)](https://github.com/microsoft/teams.ts/blob/main/packages/apps/src/http/http-stream.ts)
+- [teams.ts ActivitySender + createStream()](https://github.com/microsoft/teams.ts/blob/main/packages/apps/src/activity-sender.ts)
+- [teams.ts IStreamer type (exported)](https://github.com/microsoft/teams.ts/blob/main/packages/apps/src/types/streamer.ts)
+- [teams.ts invoke route aliases (InvokeAliases)](https://github.com/microsoft/teams.ts/blob/main/packages/apps/src/routes/invoke/index.ts)
 - [teams.ts ActivityContext (SSO/signin)](https://github.com/microsoft/teams.ts/blob/main/packages/apps/src/contexts/activity.ts)
-- [teams.ts OAuth handlers](https://github.com/microsoft/teams.ts/blob/main/packages/apps/src/app.oauth.ts)
+- [teams.ts OAuth handlers (onTokenExchange, onVerifyState, onSignInFailure)](https://github.com/microsoft/teams.ts/blob/main/packages/apps/src/app.oauth.ts)
 - [teams.ts IHttpServerAdapter interface](https://github.com/microsoft/teams.ts/blob/main/packages/apps/src/http/adapter.ts)
 - [vercel/chat TeamsAdapter index.ts](https://github.com/vercel/chat/blob/main/packages/adapter-teams/src/index.ts)
 - [vercel/chat BridgeHttpAdapter](https://github.com/vercel/chat/blob/main/packages/adapter-teams/src/bridge-adapter.ts)
